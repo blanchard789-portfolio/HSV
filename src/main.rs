@@ -56,7 +56,7 @@ const FRAME_V: Frame = [
 
 const FRAMES: [Frame; 3] = [FRAME_H, FRAME_S, FRAME_V];
 
-const MAX_POT: i16 = 1;
+const MAX_POT: i16 = 0x3FFF;
 
 static RGB: LockMut<RgbDisplay> = LockMut::new();
 
@@ -95,10 +95,12 @@ impl RgbDisplay {
         let g_n = (rgb_obj.g * STEPS as f32) as u32;
         let b_n = (rgb_obj.b * STEPS as f32) as u32;
 
+        //rprintln!("rgb {} {} {}", r_n, g_n, b_n);
+
         // Calculates steps
         let g_steps = g_n;
-        let b_steps = b_n - g_steps;
-        let r_steps = r_n - b_n;
+        let b_steps = b_n.saturating_sub(g_n);
+        let r_steps = b_n.saturating_sub(r_n);
         self.next_schedule = Some([g_steps, b_steps, r_steps]);
     }
 
@@ -113,21 +115,22 @@ impl RgbDisplay {
                 }
             }
             self.tick = 1;
-            time_delay = self.schedule[1];
+            time_delay = self.schedule[0];
         } else if self.tick == 1 {
             self.rgb_pins[1].set_high().unwrap();
             self.tick = 2;
-            time_delay = self.schedule[2];
+            time_delay = self.schedule[1];
         } else if self.tick == 2 {
             self.rgb_pins[2].set_high().unwrap();
             self.tick = 3;
-            time_delay = self.schedule[0];
+            time_delay = self.schedule[2];
         } else if self.tick == 3 {
             self.rgb_pins[0].set_high().unwrap();
             self.tick = 0;
-            time_delay = STEPS as u32 - (self.schedule[1] + self.schedule[2] + self.schedule[0]);
+            time_delay = (STEPS as u32)
+                .saturating_sub(self.schedule[0] + self.schedule[1] + self.schedule[2]);
         }
-
+        //rprintln!("sch {} {} {}", self.schedule[0], self.schedule[1], self.schedule[2]);
         //rprintln!("inter {}", (time_delay * 100).max(100));
         self.timer0.reset_event();
         self.timer0.start((time_delay * 100).max(100));
@@ -159,9 +162,9 @@ fn main() -> ! {
     let mut pin_pot = board.edge.e02;
 
     let mut hsv_obj = Hsv {
-        h: 9.0,
-        s: 0.5,
-        v: 0.7,
+        h: 0.5,
+        s: 0.75,
+        v: 0.50,
     };
 
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER0) };
