@@ -100,7 +100,7 @@ impl RgbDisplay {
         // Calculates steps
         let g_steps = g_n;
         let b_steps = b_n.saturating_sub(g_n);
-        let r_steps = b_n.saturating_sub(r_n);
+        let r_steps = r_n.saturating_sub(b_n);
         self.next_schedule = Some([g_steps, b_steps, r_steps]);
     }
 
@@ -162,9 +162,9 @@ fn main() -> ! {
     let mut pin_pot = board.edge.e02;
 
     let mut hsv_obj = Hsv {
-        h: 0.5,
-        s: 0.75,
-        v: 0.50,
+        h: 0.4,
+        s: 1.0,
+        v: 1.0,
     };
 
     unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER0) };
