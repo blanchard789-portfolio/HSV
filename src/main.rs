@@ -4,9 +4,10 @@
 use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 
-//use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
+use critical_section_lock_mut::LockMut;
 use embedded_hal::{digital::InputPin, digital::OutputPin};
+use hsv::Hsv;
 use microbit::{
     board::Board,
     display::blocking::Display,
@@ -18,13 +19,16 @@ use microbit::{
     },
 };
 
-use critical_section_lock_mut::LockMut;
-
-use hsv::Hsv;
-
-const STEPS: i32 = 100;
+// const STEPS: sets how many steps there are in a frame (used by the PWM interrupt handler)
+const STEPS: u32 = 100;
+// const DURATION: sets how long each step lasts (used by the PWM interrupt handler)
+const DURATION: u32 = 100;
+// const DELAY: sets the delay interval for the superloop (not the PWM interrupt handler)
 const DELAY: u32 = 10;
+// const MAX_POT: sets the max value to be stored when reading the potentiometer
+const MAX_POT: i16 = 0x3FFF;
 
+// Frames used by Microbit LED matrix to denote currently selected HSV mode
 type Frame = [[u8; 5]; 5];
 
 #[rustfmt::skip]
@@ -55,8 +59,6 @@ const FRAME_V: Frame = [
 ];
 
 const FRAMES: [Frame; 3] = [FRAME_H, FRAME_S, FRAME_V];
-
-const MAX_POT: i16 = 0x3FFF;
 
 static RGB: LockMut<RgbDisplay> = LockMut::new();
 
@@ -127,13 +129,13 @@ impl RgbDisplay {
         } else if self.tick == 3 {
             self.rgb_pins[0].set_high().unwrap();
             self.tick = 0;
-            time_delay = (STEPS as u32)
-                .saturating_sub(self.schedule[0] + self.schedule[1] + self.schedule[2]);
+            time_delay =
+                STEPS.saturating_sub(self.schedule[0] + self.schedule[1] + self.schedule[2]);
         }
         //rprintln!("sch {} {} {}", self.schedule[0], self.schedule[1], self.schedule[2]);
         //rprintln!("inter {}", (time_delay * 100).max(100));
         self.timer0.reset_event();
-        self.timer0.start((time_delay * 100).max(100));
+        self.timer0.start((time_delay * DURATION).max(100));
     }
 }
 
