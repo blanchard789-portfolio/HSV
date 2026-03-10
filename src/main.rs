@@ -68,8 +68,9 @@ fn TIMER0() {
 }
 
 struct RgbDisplay {
-    tick: u32,
-    schedule: [u32; 3],
+    tick: usize,
+    schedule_channels: [usize; 3],
+    schedule_times: [u32; 3],
     next_schedule: Option<[u32; 3]>,
     rgb_pins: [gpio::Pin<gpio::Output<gpio::PushPull>>; 3],
     timer0: Timer<pac::TIMER0>,
@@ -82,7 +83,8 @@ impl RgbDisplay {
     ) -> Self {
         Self {
             tick: 0,
-            schedule: [10; 3],
+            schedule_channels: [0, 1, 2],
+            schedule_times: [10; 3],
             next_schedule: Some([10; 3]),
             rgb_pins,
             timer0,
@@ -93,47 +95,77 @@ impl RgbDisplay {
         self.timer0.enable_interrupt();
         let rgb_obj = hsv.to_rgb();
         // Normalizes vaules and converts them to u32
-        let r_n = (rgb_obj.r * STEPS as f32) as u32;
-        let g_n = (rgb_obj.g * STEPS as f32) as u32;
-        let b_n = (rgb_obj.b * STEPS as f32) as u32;
+        let r_n = (rgb_obj.r * 100.0) as u32;
+        let g_n = (rgb_obj.g * 100.0) as u32;
+        let b_n = (rgb_obj.b * 100.0) as u32;
 
-        //rprintln!("rgb {} {} {}", r_n, g_n, b_n);
-
-        // Calculates steps
-        let g_steps = g_n;
-        let b_steps = b_n.saturating_sub(g_n);
-        let r_steps = r_n.saturating_sub(b_n);
-        self.next_schedule = Some([g_steps, b_steps, r_steps]);
+        self.next_schedule = Some([r_n, g_n, b_n]);
     }
 
     fn step(&mut self) {
         let mut time_delay = 0;
         if self.tick == 0 {
-            //rprintln!("start {}", self.schedule[1]);
-            if let Some(next) = self.next_schedule.take() {
-                self.schedule = next;
+            if let Some(n) = self.next_schedule.take() {
+                let next = n;
+                struct PinTime {
+                    pin: usize,
+                    duty: u32,
+                }
+
+                let mut pt = [
+                    PinTime {
+                        pin: 0,
+                        duty: next[0],
+                    },
+                    PinTime {
+                        pin: 1,
+                        duty: next[1],
+                    },
+                    PinTime {
+                        pin: 2,
+                        duty: next[2],
+                    },
+                ];
+
+                if pt[0].duty > pt[1].duty {
+                    pt.swap(0, 1);
+                }
+                if pt[1].duty > pt[2].duty {
+                    pt.swap(1, 2);
+                }
+                if pt[0].duty > pt[1].duty {
+                    pt.swap(0, 1);
+                }
+
+                // Calculates steps
+                let t1 = pt[0].duty;
+                let t2 = pt[1].duty.saturating_sub(pt[0].duty);
+                let t3 = pt[2].duty.saturating_sub(pt[1].duty);
+
+                self.schedule_channels = [pt[0].pin, pt[1].pin, pt[2].pin];
+                self.schedule_times = [t1, t2, t3];
+
                 for p in self.rgb_pins.iter_mut() {
                     p.set_low().unwrap();
                 }
+                time_delay = self.schedule_times[0];
+                self.tick = 1;
             }
-            self.tick = 1;
-            time_delay = self.schedule[0];
-        } else if self.tick == 1 {
-            self.rgb_pins[1].set_high().unwrap();
-            self.tick = 2;
-            time_delay = self.schedule[1];
-        } else if self.tick == 2 {
-            self.rgb_pins[2].set_high().unwrap();
-            self.tick = 3;
-            time_delay = self.schedule[2];
+        } else if (1..3).contains(&self.tick) {
+            self.rgb_pins[self.schedule_channels[self.tick - 1]]
+                .set_high()
+                .unwrap();
+            time_delay = self.schedule_times[self.tick];
+            self.tick += 1;
         } else if self.tick == 3 {
-            self.rgb_pins[0].set_high().unwrap();
+            self.rgb_pins[self.schedule_channels[self.tick - 1]]
+                .set_high()
+                .unwrap();
+            time_delay = STEPS.saturating_sub(
+                self.schedule_times[0] + self.schedule_times[1] + self.schedule_times[2],
+            );
             self.tick = 0;
-            time_delay =
-                STEPS.saturating_sub(self.schedule[0] + self.schedule[1] + self.schedule[2]);
         }
-        //rprintln!("sch {} {} {}", self.schedule[0], self.schedule[1], self.schedule[2]);
-        //rprintln!("inter {}", (time_delay * 100).max(100));
         self.timer0.reset_event();
         self.timer0.start((time_delay * DURATION).max(100));
     }
